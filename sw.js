@@ -1,5 +1,5 @@
-/* エネ管 暗記デッキ — オフライン用 Service Worker（キャッシュ優先） */
-const CACHE = "enekan-anki-v1";
+/* エネ管 暗記デッキ — Service Worker（HTMLはネット優先 / 静的はキャッシュ優先） */
+const CACHE = "enekan-anki-v2";
 const ASSETS = [
   "./",
   "./index.html",
@@ -22,14 +22,33 @@ self.addEventListener("activate", (e) => {
 
 self.addEventListener("fetch", (e) => {
   if (e.request.method !== "GET") return;
-  e.respondWith(
-    caches.match(e.request).then((hit) =>
-      hit ||
-      fetch(e.request).then((res) => {
+  const req = e.request;
+  const isHTML =
+    req.mode === "navigate" ||
+    (req.headers.get("accept") || "").includes("text/html");
+
+  if (isHTML) {
+    // index.html はネット優先：最新を取れたらキャッシュ更新、失敗時のみキャッシュ
+    e.respondWith(
+      fetch(req).then((res) => {
         const copy = res.clone();
-        caches.open(CACHE).then((c) => c.put(e.request, copy)).catch(() => {});
+        caches.open(CACHE).then((c) => c.put("./index.html", copy)).catch(() => {});
         return res;
-      }).catch(() => caches.match("./index.html"))
-    )
-  );
+      }).catch(() =>
+        caches.match("./index.html").then((h) => h || caches.match("./"))
+      )
+    );
+  } else {
+    // 静的ファイルはキャッシュ優先
+    e.respondWith(
+      caches.match(req).then((hit) =>
+        hit ||
+        fetch(req).then((res) => {
+          const copy = res.clone();
+          caches.open(CACHE).then((c) => c.put(req, copy)).catch(() => {});
+          return res;
+        }).catch(() => caches.match("./index.html"))
+      )
+    );
+  }
 });
